@@ -29,8 +29,6 @@ const Socket = (socketServer) => {
     cors: {
       origin: [
         "http://localhost:3000",
-        "http://uat.robowriter.in",
-        "https://drtrade.robowriter.in",
       ],
       methods: ["GET", "POST"],
       credentials: true,
