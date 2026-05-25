@@ -2,19 +2,17 @@ import { Server } from "socket.io";
 import Redis from "ioredis";
 import StgLog from "./models/stgLog.js";
 import Log from "./models/logs.js";
-// import Redis from "ioredis";
-import sSchema from "./models/strategy.js";
-// import Log from "./models/stgLog.js";
 import account from "./models/account.js";
 import redisConnect from "./utils/redisConnect.js";
+import { subscribe as redisSubscribe } from "../shared/utils/redisPubSub.js";
 import { getClientPositions, getPositions } from "./controllers/positions.js";
 import processTrades from "./utils/processTrades.js";
-import { saveLog } from "./utils/saveLog.js";
+import { saveLog } from "../shared/utils/saveLogs.js";
 import getStraddle from "./controllers/straddle.js";
 import StrategySchema from "./models/strategy.js";
 import StgTag from "./models/tag.js";
 import { getSystemStatusInfo } from "./controllers/systemStatus.js";
-import { REDIS_MESSAGES } from "../shared/constants/redisConstant.js";
+import { REDIS_MESSAGES, REDIS_CHANNELS } from "../shared/constants/redisConstant.js";
 
 // const client = new Redis({
 //   password: process.env.redisPass,
@@ -29,6 +27,8 @@ const Socket = (socketServer) => {
     cors: {
       origin: [
         "http://localhost:3000",
+        "http://uat.robowriter.in",
+        "https://drtrade.robowriter.in",
       ],
       methods: ["GET", "POST"],
       credentials: true,
@@ -37,6 +37,19 @@ const Socket = (socketServer) => {
 
   const topicIntervals = new Map();
   const lastPayloadByRoom = new Map();
+
+  // Use shared redisPubSub.subscribe to forward published logs to the `logs` room
+  try {
+    redisSubscribe(REDIS_CHANNELS.LOGS, (parsedMessage) => {
+      try {
+        io.to("logs").emit("getLog", parsedMessage);
+      } catch (e) {
+        console.error("Error emitting log to sockets:", e);
+      }
+    }).catch((e) => console.error("Failed to subscribe to Redis logs channel:", e));
+  } catch (e) {
+    console.error("Error setting up Redis subscription:", e);
+  }
 
   function ensureTopicInterval(roomName, intervalMs, fetchFn, eventName) {
     if (topicIntervals.has(roomName)) return;
@@ -98,8 +111,10 @@ const Socket = (socketServer) => {
     socket.on("subscribeLogs", () => {
       const roomName = "logs";
       socket.join(roomName);
-      ensureTopicInterval(roomName, 1000, () => getLiveLogs(), "getLog");
-      (async () => { try { socket.emit("getLog", await getLiveLogs()); } catch { } })();
+      // We no longer poll and emit the entire logs queue here.
+      // Live logs are forwarded from Redis pub/sub when published.
+      // Optionally emit a confirmation to the client.
+      try { socket.emit("subscribedLogs", { success: true }); } catch {}
       cleanupEmptyTopicIntervals();
     });
 
@@ -290,7 +305,7 @@ async function fetchStgData(runOnDays) {
 
     const query = runOnDays?.length > 0 ? { runOnDay: { $in: runOnDays } } : {};
     // getting data of Column ( name,status, _id, loaded)
-    const data = await sSchema.find(query, "name status _id loaded tag index").lean();
+    const data = await StrategySchema.find(query, "name status _id loaded tag index").lean();
 
     // getting one unique UserId  where parent===true
     const user = await account.findOne({ parent: true }, "userId multiplier").lean();

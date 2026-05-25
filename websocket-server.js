@@ -1,5 +1,5 @@
 import http from 'http';
-import Socket from './websocket.js';
+import Socket from './websocket/index.js';
 import config from './config/index.js';
 import connectDB from './utils/connectMongo.js';
 
