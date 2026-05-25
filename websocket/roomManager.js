@@ -16,10 +16,7 @@ export function createRoomManager(io) {
   function schedule(roomName, intervalMs, fetchFn, eventName) {
     if (topicIntervals.has(roomName)) return;
 
-    const state = {
-      interval: null,
-      running: false,
-    };
+    const state = { interval: null, running: false };
 
     const runner = async () => {
       if (state.running) return;
@@ -47,8 +44,23 @@ export function createRoomManager(io) {
     topicIntervals.set(roomName, state);
   }
 
+  // Send the most recently cached payload to a single socket immediately on
+  // subscribe. Avoids hammering the DB when many clients subscribe at once —
+  // they get the last broadcast, then ride the shared interval.
+  function emitCachedTo(socket, roomName, eventName) {
+    const cached = lastPayloadByRoom.get(roomName);
+    if (!cached) return false;
+    try {
+      socket.emit(eventName, JSON.parse(cached));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   return {
     schedule,
     cleanupEmptyRoomIntervals,
+    emitCachedTo,
   };
 }
